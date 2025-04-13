@@ -1,0 +1,296 @@
+#!/bin/sh
+
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tmax"
+layouts_dir="$config_dir/layouts"
+config_file="$config_dir/config"
+
+cmd="tmux new-session"
+session=""
+options=""
+dry_run=0
+attach=0
+sfile=""
+lfile=""
+args=()
+
+print_help() {
+  echo "Usage: tmax [COMMAND] [OPTIONS]"
+  echo ""
+  echo "Commands:"
+  echo "  init            creates default config and layouts folder"
+  echo "  list            lists saved layouts"
+  echo ""
+  echo "Options:"
+  echo "  -v:<width>      split vertically with given width"
+  echo "  -h:<height>     split horizontally with given height"
+  echo "  -c:<command>    run a command in the current window or split"
+  echo "  -w:<name>       create a new named window"
+  echo "  -s:<name>       name the session"
+  echo "  -a              auto attach to the session"
+  echo ""
+  echo "Session file options:"
+  echo "  --file:<file>   run session from a tmax file"
+  echo "  --save:<name>   save layout to a file"
+  echo "  --load:<name>   load layout by name"
+  echo ""
+  echo "Other:"
+  echo "  --dry-run       print tmux command without executing them"
+  echo "  -h, --help      show usage info"
+}
+
+parse_args() {
+  for arg in "$@"; do
+    case "$arg" in
+      -v*) 
+        options+=" \; split-window -v"
+        if [[ "${arg:2:1}" == ":" && -n "${arg:3}" ]]; then
+          options+=" \; resize-pane -y ${arg:3}"
+        fi
+        ;;
+      -h*)
+        options+=" \; split-window -h"
+        if [[ "${arg:2:1}" == ":" && -n "${arg:3}" ]]; then
+          options+=" \; resize-pane -x ${arg:3}"
+        fi
+        ;;
+      -c:*) 
+        if [[ -n "${arg:3}" ]]; then
+          if [[ "${arg:3}" == \"*\" ]]; then
+            options+=" \; send-keys ${arg:3} Enter"
+          else
+            options+=" \; send-keys \"${arg:3}\" Enter"
+          fi
+        else
+          echo "Missing argument for -c"
+          echo ""
+          print_help
+          exit 1
+        fi
+        ;;
+      -w*)
+        options+=" \; new-window"
+        if [[ "${arg:2:1}" == ":" && -n "${arg:3}" ]]; then
+          if [[ "${arg:3}" == \"*\" ]]; then
+            options+=" -n ${arg:3}"
+          else
+            options+=" -n \"${arg:3}\""
+          fi
+        fi
+        ;;
+      -s:*)
+        if [[ -n "${arg:3}" ]]; then
+          if [[ -z "$session" ]]; then
+            if [[ "${arg:3}" == \"*\" ]]; then
+              session="-s ${arg:3}"
+            else
+              session="-s \"${arg:3}\""
+            fi
+          else
+            echo "Duplicate flag -s"
+            echo ""
+            print_help
+            exit 1
+          fi
+        else
+          echo "Missing argument for -s"
+          echo ""
+          print_help
+          exit 1
+        fi
+        ;;
+      -a)
+        if [[ attach -eq 0 ]]; then
+          attach=1
+        else
+          echo "Duplicate flag -a"
+          echo ""
+          print_help
+          exit 1
+        fi
+        ;;
+      *) ;;
+    esac
+  done
+}
+
+load_config() {
+  [[ -f "$config_file" ]] || return
+
+  while IFS= read -r line; do
+    line="${line%%#*}"
+    line="$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+    [[ -z "$line" ]] && continue
+
+    key="${line%%=*}"
+    value="${line#*=}"
+
+    case "$key" in
+      default_session_name)
+        if [[ -z "$session" ]]; then
+          session="-s $value"
+        fi
+        ;;
+      auto_attach)
+        if [[ $attach -eq 0 && "$value" = "1" ]]; then
+          attach=1
+        fi
+        ;;
+    esac
+  done < "$config_file"
+}
+
+if [[ "$1" = "init" ]]; then
+  mkdir -p "$layouts_dir"
+
+  if [[ ! -f "$config_file" ]]; then
+    cat > "$config_file" <<EOF
+# tmax config file
+
+default_seesion_name=
+auto_attach=0
+EOF
+    echo "Created default config at: $config_file"
+  else
+    echo "Config already exists at: $config_file"
+  fi
+
+  echo "Layouts directory: $layouts_dir"
+elif [[ "$1" = "list" ]]; then
+  if [[ ! -d "$layouts_dir" ]]; then
+    echo "No layouts directory found. Run 'tmax init' to create it."
+    exit 1
+  fi
+
+  echo "Available layouts:"
+  find "$layouts_dir" -maxdepth 1 -type f -name '*.tmax' \
+    | sed 's|.*/||; s|\.tmax$||' \
+    | sort
+  exit 0
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    --help)
+      print_help
+      exit 0
+      ;;
+    -h)
+      print_help
+      exit 0
+      ;;
+    --file:*)
+      if [[ -n "${arg:7}" ]]; then
+        if [[ -z "$sfile" ]]; then
+          if [[ "${arg:7}" == \"*\" ]]; then
+            sfile="$(readlink -f "${arg:8:-1}")"
+          else
+            sfile="$(readlink -f "${arg:7}")"
+          fi
+        else
+          echo "Duplicate flag --file"
+          echo ""
+          print_help
+          exit 1
+        fi
+      else
+        echo "Missing argument for --file"
+        echo ""
+        print_help
+        exit 1
+      fi
+      ;;
+    --load:*)
+      if [[ -n "${arg:7}" ]]; then
+        if [[ "${arg:7}" == \"*\" ]]; then
+          sfile="$layouts_dir/${arg:8:-1}.tmax"
+        else
+          sfile="$layouts_dir/${arg:7}.tmax"
+        fi
+      else
+        echo "Missing argument for --load"
+        echo ""
+        print_help
+        exit 1
+      fi
+      ;;
+    --save:*)
+      if [[ -n "${arg:7}" ]]; then
+        if [[ "${arg:7}" == \"*\" ]]; then
+          lfile="${arg:8:-1}"
+        else
+          lfile="${arg:7}"
+        fi
+      else
+        echo "Missing argument for --save"
+        echo ""
+        print_help
+        exit 1
+      fi
+      ;;
+    --dry-run)
+      if [[ dry_run -eq 0 ]]; then
+        dry_run=1
+      else
+        echo "Duplicate flag --dry-run"
+        echo ""
+        print_help
+        exit 1
+      fi
+      ;;
+    *)
+      args[${#args[@]}]="$arg"
+      ;;
+  esac
+done
+
+if [[ -z "$lfile" ]]; then
+  if [[ -z "$sfile" ]]; then
+    parse_args "${args[@]}"
+  else
+    if [[ -f "$sfile" ]]; then
+      if [[ -r "$sfile" ]]; then
+        args=()
+        while IFS= read -r line || [[ -n "$line" ]]; do
+          args[${#args[@]}]="$line"
+        done < "$sfile"
+        parse_args "${args[@]}"
+      else
+        echo "File is not readable: $sfile"
+        echo ""
+        print_help
+        exit 1
+      fi
+    else
+      echo "Could not find file: $sfile"
+      echo ""
+      print_help
+      exit 1
+    fi
+  fi
+
+  if [[ attach -eq 0 ]]; then
+    session="-d $session"
+  fi
+
+  load_config
+
+  if [[ dry_run -eq 0 ]]; then
+    eval "$cmd $session $options"
+  else
+    echo "$cmd $session $options"
+  fi
+else
+  if [[ -n "$lfile" ]]; then
+    mkdir -p "$layouts_dir"
+    layout_file="$layouts_dir/$lfile.tmax"
+
+    {
+      for a in "${args[@]}"; do
+        echo "$a"
+      done
+    } > "$layout_file"
+
+    echo "Layout saved to $layout_file"
+  fi
+fi
