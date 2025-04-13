@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="tmax logo" width="100" />
+  <img src="logo.png" alt="tmax logo" width="100" style="border-radius: 8px;" />
 </p>
 
 <h1 align="center">tmax</h1>
