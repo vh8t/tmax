@@ -1,116 +1,100 @@
-#!/bin/sh
+#!/bin/bash
+
+TMAX_VERSION="1.0.0"
 
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tmax"
 layouts_dir="$config_dir/layouts"
 config_file="$config_dir/config"
 
-cmd="tmux new-session"
-session=""
+session_name=""
 options=""
-dry_run=0
+
+load_file=""
+save_file=""
+summary=0
 attach=0
-sfile=""
-lfile=""
+dry=0
+
 args=()
+logs=("Window: main")
 
 print_help() {
-  echo "Usage: tmax [COMMAND] [OPTIONS]"
+  echo "tmax - A declarative, composable wrapper for tmux"
+  echo ""
+  echo "Usage:"
+  echo "  tmax [COMMAND] [OPTIONS]"
   echo ""
   echo "Commands:"
-  echo "  init            creates default config and layouts folder"
-  echo "  list            lists saved layouts"
+  echo "  init                          Create default config and layouts folder"
+  echo "  list                          List saved layouts"
   echo ""
-  echo "Options:"
-  echo "  -v:<width>      split vertically with given width"
-  echo "  -h:<height>     split horizontally with given height"
-  echo "  -c:<command>    run a command in the current window or split"
-  echo "  -w:<name>       create a new named window"
-  echo "  -s:<name>       name the session"
-  echo "  -a              auto attach to the session"
+  echo "Session options:"
+  echo "  -s, --session:<name>          Name the tmux session"
+  echo "  -a, --attach                  Automatically attach to the session after creation"
+  echo "  -m, --summary                 Print a detailed session summary before execution"
+  echo ""
+  echo "Layout options:"
+  echo "  -v, --vertical[:<width>]      Split vertically with optional width"
+  echo "  -h, --horizontal[:<height>]   Split horizontally with optional height"
+  echo "  -w, --window[:<name>]         Create a new (optionally named) window"
+  echo "  -c, --command:<command>       Run a command in the current window or split"
   echo ""
   echo "Session file options:"
-  echo "  --file:<file>   run session from a tmax file"
-  echo "  --save:<name>   save layout to a file"
-  echo "  --load:<name>   load layout by name"
+  echo "  -f, --file:<file>             Run session from a tmax file"
+  echo "  -S, --save:<name>             Save current layout to a file"
+  echo "  -l, --load:<name>             Load layout by name"
   echo ""
-  echo "Other:"
-  echo "  --dry-run       print tmux command without executing them"
-  echo "  -h, --help      show usage info"
+  echo "Other options:"
+  echo "  -d, --dry-run                 Show tmux commands without executing them"
+  echo "  -H, --help                    Show this help message"
+  echo "  -V, --version                 Show current tmax version"
+  echo ""
+  echo "Config:"
+  echo "  ~/.config/tmax/config         Global config file"
+  echo "  ~/.config/tmax/layouts/       Saved layout files"
+  echo ""
+  echo "Example:"
+  echo "  tmax -s:dev -w:editor -c:'nvim .' -v:40 -c:'npm run dev' -a"
+  echo ""
+  echo "tmax is a lightweight CLI tool for structuring your tmux sessions using a"
+  echo "clear, declarative approach. Supports layout saving, summaries, dry runs, and more."
+  echo ""
+  echo "Project: https://github.com/vh8t/tmax"
 }
 
-parse_args() {
-  for arg in "$@"; do
-    case "$arg" in
-      -v*) 
-        options+=" \; split-window -v"
-        if [[ "${arg:2:1}" == ":" && -n "${arg:3}" ]]; then
-          options+=" \; resize-pane -y ${arg:3}"
-        fi
-        ;;
-      -h*)
-        options+=" \; split-window -h"
-        if [[ "${arg:2:1}" == ":" && -n "${arg:3}" ]]; then
-          options+=" \; resize-pane -x ${arg:3}"
-        fi
-        ;;
-      -c:*) 
-        if [[ -n "${arg:3}" ]]; then
-          if [[ "${arg:3}" == \"*\" ]]; then
-            options+=" \; send-keys ${arg:3} Enter"
-          else
-            options+=" \; send-keys \"${arg:3}\" Enter"
-          fi
-        else
-          echo "Missing argument for -c"
-          echo ""
-          print_help
-          exit 1
-        fi
-        ;;
-      -w*)
-        options+=" \; new-window"
-        if [[ "${arg:2:1}" == ":" && -n "${arg:3}" ]]; then
-          if [[ "${arg:3}" == \"*\" ]]; then
-            options+=" -n ${arg:3}"
-          else
-            options+=" -n \"${arg:3}\""
-          fi
-        fi
-        ;;
-      -s:*)
-        if [[ -n "${arg:3}" ]]; then
-          if [[ -z "$session" ]]; then
-            if [[ "${arg:3}" == \"*\" ]]; then
-              session="-s ${arg:3}"
-            else
-              session="-s \"${arg:3}\""
-            fi
-          else
-            echo "Duplicate flag -s"
-            echo ""
-            print_help
-            exit 1
-          fi
-        else
-          echo "Missing argument for -s"
-          echo ""
-          print_help
-          exit 1
-        fi
-        ;;
-      -a)
-        if [[ attach -eq 0 ]]; then
-          attach=1
-        else
-          echo "Duplicate flag -a"
-          echo ""
-          print_help
-          exit 1
-        fi
-        ;;
-      *) ;;
-    esac
-  done
+print_version() {
+  echo "tmax version $TMAX_VERSION"
+  echo "A declarative, composable wrapper for tmux"
+  echo "Author: vh8t"
+  echo "Repository: https://github.com/vh8t/tmax"
+}
+
+is_quoted() {
+  [[ "$1" == \"*\" ]]
+}
+
+get_value() {
+  local short="$1"
+  local long="$2"
+  local arg="$3"
+  local value
+
+  if [[ "$arg" == "$short"* ]]; then
+    value="${arg#"$short"}"
+  elif [[ "$arg" == "$long"* ]]; then
+    value="${arg#"$long"}"
+  else
+    echo "$arg"
+    return 1
+  fi
+
+  if is_quoted "$value"; then
+    value="${value#\"}"
+    value="${value%\"}"
+  fi
+
+  echo "$value"
+  return 0
 }
 
 load_config() {
@@ -127,17 +111,191 @@ load_config() {
 
     case "$key" in
       default_session_name)
-        if [[ -z "$session" ]]; then
-          session="-s $value"
+        if [[ -z "$session_name" ]]; then
+          session_name="$value"
         fi
         ;;
       auto_attach)
-        if [[ $attach -eq 0 && "$value" = "1" ]]; then
-          attach=1
+        if (( ! attach )); then
+          if [[ "$value" = "true" || "$value" = "1" ]]; then
+            attach=1
+          fi
         fi
+        ;;
+      summary)
+        if (( ! summary )); then
+          if [[ "$value" = "true" || "$value" = "1" ]]; then
+            summary=1
+          fi
+        fi
+        ;;
+      *)
         ;;
     esac
   done < "$config_file"
+}
+
+parse_args() {
+  for arg in "$@"; do
+    case "$arg" in
+      -v|--vertical)
+        options+=" \; split-window -v"
+        logs+=("Split: vertical")
+        ;;
+      -v:*|--vertical:*)
+        result=$(get_value "-v:" "--vertical:" "$arg")
+        options+=" \; split-window -v \; resize-pane -y $result"
+        logs+=("Split: vertical ($result)")
+        ;;
+      -h|--horizontal)
+        options+=" \; split-window -h"
+        logs+=("Split: horizontal")
+        ;;
+      -h:*|--horizontal:*)
+        result=$(get_value "-h:" "--horizontal:" "$arg")
+        options+=" \; split-window -h \; resize-pane -x $result"
+        logs+=("Split: horizontal ($result)")
+        ;;
+      -c:*|--command:*)
+        result=$(get_value "-c:" "--command:" "$arg")
+        options+=" \; send-keys \"$result\" Enter"
+        logs+=("Command: $result")
+        ;;
+      -w|--window)
+        options+=" \; new-window"
+        logs+=("Window")
+        ;;
+      -w:*|--window:*)
+        result=$(get_value "-w:" "--window:" "$arg")
+        options+=" \; new-window -n \"$result\""
+        logs+=("Window: $result")
+        ;;
+      -s:*|--session:*)
+        if [ -n "$session_name" ]; then
+          echo "Duplicate --session flag"
+          echo ""
+          print_help
+          exit 1
+        fi
+
+        result=$(get_value "-s:" "--session:" "$arg")
+        session_name="$result"
+        ;;
+      -m|--summary)
+        if (( summary )); then
+          echo "Duplicate --summary flag"
+          echo ""
+          print_help
+          exit 1
+        fi
+
+        summary=1
+        ;;
+      -a|--attach)
+        if (( attach )); then
+          echo "Duplicate --attach flag"
+          echo ""
+          print_help
+          exit 1
+        fi
+
+        attach=1
+        ;;
+      *)
+        echo "Unknown flag $arg"
+        echo ""
+        print_help
+        exit 1
+        ;;
+    esac
+  done
+}
+
+check_dup_files() {
+  if [[ -n "$load_file" || -n "$save_file" ]]; then
+    echo "Only one --file, --save or --load can be present"
+    echo ""
+    print_help
+    exit 1
+  fi
+}
+
+print_summary() {
+  echo "tmax session summary"
+  echo "---------------------"
+  echo "Session name: $session_name"
+  echo "Auto attach: $([[ "$attach" -eq 1 ]] && echo 'yes' || echo 'no')"
+
+  local was_window=0
+  local win_count=0
+  local current_splits=0
+  local cmd_count=0
+
+  for log in "${logs[@]}"; do
+    case "$log" in
+      Window*)
+        echo ""
+        echo "$log"
+        was_window=1
+        (( win_count+=1 ))
+        current_splits=0
+        cmd_count=0
+        ;;
+      Split*)
+        echo "  $log"
+        was_window=0
+        (( current_splits+=1 ))
+        ;;
+      Command*)
+        (( cmd_count+=1 ))
+        if (( was_window )); then
+          echo "  $(echo "$log" | sed "s/Command:/Command [$cmd_count]:/")"
+        else
+          echo "    $(echo "$log" | sed "s/Command:/Command [$cmd_count]:/")"
+        fi
+        ;;
+      *)
+        ;;
+    esac
+  done
+
+  echo ""
+  echo "Total windows: $win_count"
+  echo "Total splits in current window: $current_splits"
+  echo ""
+
+  if [ -n "$load_file" ]; then
+    echo "Layout loaded from: $load_file"
+    [[ "$dry" -eq 1 ]] && echo "Dry run: yes"
+  elif [ -n "$save_file" ]; then
+    echo "Saving layout as: $save_file"
+  else
+    [[ "$dry" -eq 1 ]] && echo "Dry run: yes"
+  fi
+
+  echo ""
+}
+
+parse_all() {
+  parse_args "${args[@]}"
+  load_config
+  (( ! summary )) || print_summary
+}
+
+run_parsed() {
+  if [ -n "$session_name" ]; then
+    options="-s $session_name $options"
+  fi
+
+  if (( ! attach )); then
+    options="-d $options"
+  fi
+
+  if (( dry )); then
+    echo "tmux new-session $options"
+  else
+    eval "tmux new-session $options"
+  fi
 }
 
 if [[ "$1" = "init" ]]; then
@@ -149,6 +307,7 @@ if [[ "$1" = "init" ]]; then
 
 default_seesion_name=
 auto_attach=0
+summary=0
 EOF
     echo "Created default config at: $config_file"
   else
@@ -156,6 +315,7 @@ EOF
   fi
 
   echo "Layouts directory: $layouts_dir"
+  exit 0
 elif [[ "$1" = "list" ]]; then
   if [[ ! -d "$layouts_dir" ]]; then
     echo "No layouts directory found. Run 'tmax init' to create it."
@@ -171,126 +331,75 @@ fi
 
 for arg in "$@"; do
   case "$arg" in
-    --help)
+    -H|--help)
       print_help
       exit 0
       ;;
-    -h)
-      print_help
+    -V|--version)
+      print_version
       exit 0
       ;;
-    --file:*)
-      if [[ -n "${arg:7}" ]]; then
-        if [[ -z "$sfile" ]]; then
-          if [[ "${arg:7}" == \"*\" ]]; then
-            sfile="$(readlink -f "${arg:8:-1}")"
-          else
-            sfile="$(readlink -f "${arg:7}")"
-          fi
-        else
-          echo "Duplicate flag --file"
-          echo ""
-          print_help
-          exit 1
-        fi
-      else
-        echo "Missing argument for --file"
-        echo ""
-        print_help
-        exit 1
-      fi
+    -f:*|--file:*)
+      check_dup_files
+      result=$(get_value "-f:" "--file:" "$arg")
+      load_file="$(readlink -f "$result")"
+      continue
       ;;
-    --load:*)
-      if [[ -n "${arg:7}" ]]; then
-        if [[ "${arg:7}" == \"*\" ]]; then
-          sfile="$layouts_dir/${arg:8:-1}.tmax"
-        else
-          sfile="$layouts_dir/${arg:7}.tmax"
-        fi
-      else
-        echo "Missing argument for --load"
-        echo ""
-        print_help
-        exit 1
-      fi
+    -S:*|--save:*)
+      check_dup_files
+      result=$(get_value "-S:" "--save:" "$arg")
+      save_file="$layouts_dir/$result.tmax"
+      continue
       ;;
-    --save:*)
-      if [[ -n "${arg:7}" ]]; then
-        if [[ "${arg:7}" == \"*\" ]]; then
-          lfile="${arg:8:-1}"
-        else
-          lfile="${arg:7}"
-        fi
-      else
-        echo "Missing argument for --save"
-        echo ""
-        print_help
-        exit 1
-      fi
+    -l:*|--load:*)
+      check_dup_files
+      result=$(get_value "-l:" "--load:" "$arg")
+      load_file="$layouts_dir/$result.tmax"
+      continue
       ;;
-    --dry-run)
-      if [[ dry_run -eq 0 ]]; then
-        dry_run=1
-      else
-        echo "Duplicate flag --dry-run"
+    -d|--dry-run)
+      if (( dry )); then
+        echo "Duplicate --dry-run flag"
         echo ""
         print_help
         exit 1
       fi
+
+      dry=1
       ;;
     *)
-      args[${#args[@]}]="$arg"
-      ;;
+      args+=("$arg")
   esac
 done
 
-if [[ -z "$lfile" ]]; then
-  if [[ -z "$sfile" ]]; then
-    parse_args "${args[@]}"
+if [ -n "$load_file" ]; then
+  if [[ -f "$load_file" && -r "$load_file" ]]; then
+    args=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      args+=("$line")
+    done < "$load_file"
+
+    parse_all
+    run_parsed
   else
-    if [[ -f "$sfile" ]]; then
-      if [[ -r "$sfile" ]]; then
-        args=()
-        while IFS= read -r line || [[ -n "$line" ]]; do
-          args[${#args[@]}]="$line"
-        done < "$sfile"
-        parse_args "${args[@]}"
-      else
-        echo "File is not readable: $sfile"
-        echo ""
-        print_help
-        exit 1
-      fi
-    else
-      echo "Could not find file: $sfile"
-      echo ""
-      print_help
-      exit 1
-    fi
+    echo "Could not open file $load_file"
+    echo ""
+    print_help
+    exit 1
   fi
+elif [ -n "$save_file" ]; then
+  parse_all
 
-  if [[ attach -eq 0 ]]; then
-    session="-d $session"
-  fi
+  mkdir -p "$layouts_dir"
 
-  load_config
+  {
+    for arg in "${args[@]}"; do
+      echo "$arg"
+    done
+  } > "$save_file"
 
-  if [[ dry_run -eq 0 ]]; then
-    eval "$cmd $session $options"
-  else
-    echo "$cmd $session $options"
-  fi
+  echo "Layout saved to $save_file"
 else
-  if [[ -n "$lfile" ]]; then
-    mkdir -p "$layouts_dir"
-    layout_file="$layouts_dir/$lfile.tmax"
-
-    {
-      for a in "${args[@]}"; do
-        echo "$a"
-      done
-    } > "$layout_file"
-
-    echo "Layout saved to $layout_file"
-  fi
+  parse_all
+  run_parsed
 fi
