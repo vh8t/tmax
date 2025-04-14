@@ -77,3 +77,8 @@ This sets up the config and layout directories at `~/.config/tmax`
 - Layouts are stored in `~/.config/tmax/layouts/`
 - Default config is stored in `~/.config/tmax/config`
 - Run `tmax init` to create both
+
+## A Note from the Author
+While **tmax** is packed with features and built for speed, it was originally designed for my **personal workflows** — minimal, composable, and tailored to how I like to work. It may not cover every edge case or workflow out there, and that’s totally fine.
+<br>
+If you’re missing a feature or want to tweak how something works, **feel free to modify the code** to suit your needs. It’s just shell — no magic, no barriers.
