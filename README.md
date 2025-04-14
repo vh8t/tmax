@@ -6,7 +6,7 @@
 
 <p align="center">
   A declarative and composable <code>tmux</code> wrapper for lightning-fast session management.<br>
-  Minimal, scriptable, and written entirely in POSIX shell.
+  Minimal, scriptable, and written entirely in bash.
 </p>
 
 <p align="center">
