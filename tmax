@@ -1,6 +1,17 @@
 #!/bin/bash
 
-TMAX_VERSION="1.0.0"
+TMAX_VERSION="1.0.1"
+
+RED='\x1b[31m'
+GREEN='\x1b[32m'
+YELLOW='\x1b[33m'
+BLUE='\x1b[34m'
+MAGENTA='\x1b[35m'
+CYAN='\x1b[36m'
+WHITE='\x1b[37m'
+
+BOLD='\x1b[1m'
+RESET='\x1b[0m'
 
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tmax"
 layouts_dir="$config_dir/layouts"
@@ -16,7 +27,7 @@ attach=0
 dry=0
 
 args=()
-logs=("Window: main")
+logs=()
 
 print_help() {
   echo "tmax - A declarative, composable wrapper for tmux"
@@ -45,6 +56,7 @@ print_help() {
   echo "  -l, --load:<name>             Load layout by name"
   echo ""
   echo "Other options:"
+  echo "  -N, --no-color                Don't color the summary output"
   echo "  -d, --dry-run                 Show tmux commands without executing them"
   echo "  -H, --help                    Show this help message"
   echo "  -V, --version                 Show current tmax version"
@@ -145,7 +157,7 @@ parse_args() {
       -v:*|--vertical:*)
         result=$(get_value "-v:" "--vertical:" "$arg")
         options+=" \; split-window -v \; resize-pane -y $result"
-        logs+=("Split: vertical ($result)")
+        logs+=("Split: vertical ${WHITE}(${RED}$result${WHITE})${RESET}")
         ;;
       -h|--horizontal)
         options+=" \; split-window -h"
@@ -154,12 +166,12 @@ parse_args() {
       -h:*|--horizontal:*)
         result=$(get_value "-h:" "--horizontal:" "$arg")
         options+=" \; split-window -h \; resize-pane -x $result"
-        logs+=("Split: horizontal ($result)")
+        logs+=("Split: horizontal ${WHITE}(${RED}$result${WHITE})${RESET}")
         ;;
       -c:*|--command:*)
         result=$(get_value "-c:" "--command:" "$arg")
         options+=" \; send-keys \"$result\" Enter"
-        logs+=("Command: $result")
+        logs+=("Command: ${GREEN}$result${RESET}")
         ;;
       -w|--window)
         options+=" \; new-window"
@@ -168,7 +180,7 @@ parse_args() {
       -w:*|--window:*)
         result=$(get_value "-w:" "--window:" "$arg")
         options+=" \; new-window -n \"$result\""
-        logs+=("Window: $result")
+        logs+=("Window: ${CYAN}$result${RESET}")
         ;;
       -s:*|--session:*)
         if [ -n "$session_name" ]; then
@@ -221,10 +233,14 @@ check_dup_files() {
 }
 
 print_summary() {
-  echo "tmax session summary"
-  echo "---------------------"
-  echo "Session name: $session_name"
-  echo "Auto attach: $([[ "$attach" -eq 1 ]] && echo 'yes' || echo 'no')"
+  echo -e "${BOLD}${CYAN}tmax session summary${RESET}"
+  echo -e "${CYAN}---------------------${RESET}"
+  if [[ -n "$session_name" ]]; then
+    echo -e "${YELLOW}Session name${RESET}: $session_name"
+  else
+    echo -e "${YELLOW}Session name${RESET}: no name"
+  fi
+  echo -e "${YELLOW}Auto attach${RESET}: $([[ "$attach" -eq 1 ]] && echo "${GREEN}yes" || echo "${RED}no")${RESET}"
 
   local was_window=0
   local win_count=0
@@ -235,23 +251,23 @@ print_summary() {
     case "$log" in
       Window*)
         echo ""
-        echo "$log"
+        echo -e "$(echo $log | sed "s/Window/${GREEN}Window${RESET}/")"
         was_window=1
         (( win_count+=1 ))
         current_splits=0
         cmd_count=0
         ;;
       Split*)
-        echo "  $log"
+        echo -e "  $(echo $log | sed "s/Split/${BLUE}Split${RESET}/")"
         was_window=0
         (( current_splits+=1 ))
         ;;
       Command*)
         (( cmd_count+=1 ))
         if (( was_window )); then
-          echo "  $(echo "$log" | sed "s/Command:/Command [$cmd_count]:/")"
+          echo -e "  $(echo "$log" | sed "s/Command:/${MAGENTA}Command ${WHITE}[${RED}$cmd_count${WHITE}]${RESET}:/")"
         else
-          echo "    $(echo "$log" | sed "s/Command:/Command [$cmd_count]:/")"
+          echo -e "    $(echo "$log" | sed "s/Command:/${MAGENTA}Command ${WHITE}[${RED}$cmd_count${WHITE}]${RESET}:/")"
         fi
         ;;
       *)
@@ -260,17 +276,25 @@ print_summary() {
   done
 
   echo ""
-  echo "Total windows: $win_count"
-  echo "Total splits in current window: $current_splits"
+  echo -e "${YELLOW}Total windows${RESET}: ${RED}$win_count${RESET}"
+  echo -e "${YELLOW}Total splits in current window${RESET}: ${RED}$current_splits${RESET}"
   echo ""
 
   if [ -n "$load_file" ]; then
-    echo "Layout loaded from: $load_file"
-    [[ "$dry" -eq 1 ]] && echo "Dry run: yes"
+    echo -e "${YELLOW}Layout loaded from${RESET}: $load_file"
+    if [[ "$dry" -eq 1 ]]; then
+      echo -e "${YELLOW}Dry run${RESET}: ${GREEN}yes${RESET}"
+    else
+      echo -e "${YELLOW}Dry run${RESET}: ${RED}no${RESET}"
+    fi
   elif [ -n "$save_file" ]; then
-    echo "Saving layout as: $save_file"
+    echo -e "${YELLOW}Saving layout as${RESET}: $save_file"
   else
-    [[ "$dry" -eq 1 ]] && echo "Dry run: yes"
+    if [[ "$dry" -eq 1 ]]; then
+      echo -e "${YELLOW}Dry run${RESET}: ${GREEN}yes${RESET}"
+    else
+      echo -e "${YELLOW}Dry run${RESET}: ${RED}no${RESET}"
+    fi
   fi
 
   echo ""
@@ -357,6 +381,17 @@ for arg in "$@"; do
       load_file="$layouts_dir/$result.tmax"
       continue
       ;;
+    -N|--no-color)
+      RED=""
+      GREEN=""
+      YELLOW=""
+      BLUE=""
+      MAGENTA=""
+      CYAN=""
+      WHITE=""
+      BOLD=""
+      RESET=""
+      ;;
     -d|--dry-run)
       if (( dry )); then
         echo "Duplicate --dry-run flag"
@@ -371,6 +406,8 @@ for arg in "$@"; do
       args+=("$arg")
   esac
 done
+
+logs+=("Window: ${CYAN}main${RESET}")
 
 if [ -n "$load_file" ]; then
   if [[ -f "$load_file" && -r "$load_file" ]]; then
@@ -397,8 +434,6 @@ elif [ -n "$save_file" ]; then
       echo "$arg"
     done
   } > "$save_file"
-
-  echo "Layout saved to $save_file"
 else
   parse_all
   run_parsed

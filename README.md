@@ -31,7 +31,7 @@ git clone https://github.com/vh8t/tmax.git ~/.local/shar/tmax
 export PATH="$HOME/.local/share/tmax:$PATH"
 ```
 
-3. Reload your shell:
+3. Reload your shell
 
 4. (Optional) initialize tmax folders:
 ```sh
@@ -53,15 +53,15 @@ This sets up the config and layout directories at `~/.config/tmax`
 - `tmax list` - List saved layouts
 
 **Session options:**
-- `-s, --session:<name>` - Name the tmux session"
-- `-a, --attach` - Automatically attach to the session after creation"
-- `-m, --summary` - Print a detailed session summary before execution"
+- `-s, --session:<name>` - Name the tmux session
+- `-a, --attach` - Automatically attach to the session after creation
+- `-m, --summary` - Print a detailed session summary before execution
 
 **Layout options:**
-- `-v, --vertical[:<width>]` - Split vertically with optional width"
-- `-h, --horizontal[:<height>]` - Split horizontally with optional height"
-- `-w, --window[:<name>]` - Create a new (optionally named) window"
-- `-c, --command:<command>` - Run a command in the current window or split"
+- `-v, --vertical[:<width>]` - Split vertically with optional width
+- `-h, --horizontal[:<height>]` - Split horizontally with optional height
+- `-w, --window[:<name>]` - Create a new (optionally named) window
+- `-c, --command:<command>` - Run a command in the current window or split
 
 **Session file options:**
 - `-f, --file:<file>` - Run session from a tmax file"
@@ -69,8 +69,9 @@ This sets up the config and layout directories at `~/.config/tmax`
 - `-l, --load:<name>` - Load layout by name"
 
 **Other options:**
-- `-d, --dry-run` - Show tmux commands without executing them"
-- `-H, --help` - Show this help message"
+- `-N, --no-color` - Don't color the summary output
+- `-d, --dry-run` - Show tmux commands without executing them
+- `-H, --help` - Show this help message
 - `-V, --version` - Show current tmax version"
 
 ## Layouts & Config
